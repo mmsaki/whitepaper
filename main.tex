@@ -1,0 +1,103 @@
+\documentclass[bibliography=numbered]{article}
+\usepackage[utf8]{inputenc}
+\usepackage[a4paper, total={6in, 8in}]{geometry}
+\geometry{
+ a4paper,
+ total={6in,257mm},
+ top=20mm,
+ bottom=40mm
+ }
+\usepackage{graphicx}
+\usepackage{parskip}
+\usepackage{amsmath}
+\usepackage{amsfonts}
+\usepackage{hyperref}
+\usepackage{multirow}
+\usepackage[section]{placeins}
+\hypersetup{
+    colorlinks=true,
+    linkcolor=blue,
+    filecolor=white,      
+    urlcolor=blue,
+    }
+
+\usepackage{biblatex} %Imports biblatex package
+\addbibresource{ref.bib} %Import the bibliography file
+
+\usepackage{caption}
+\usepackage{subcaption}
+
+\urlstyle{same}
+
+\title{ASMM: An Async Swap Market Maker For Uniswap V4 Pools (WIP)}
+
+\author{
+  Msaki, Meek\\
+  \texttt{meek10x@gmail.com}
+  \and
+  Li, Jiasun\\
+  \texttt{Jli29@gmu.edu}
+}
+ 
+\date{May 3, 2025}
+
+\begin{document}
+
+\maketitle
+\section{Introduction}
+
+The Uniswap V4 \cite{UniswapV4} protocol is an automated market maker (AMM) in DeFi. It functions similarly to its predecessor, Uniswap V3 \cite{UniswapV3}, where a constant-product market maker (CPMM) is implemented with the equation \eqref{eq:cp}, and asset prices are calculated using a tick pricing equation \eqref{eq:pr}.  
+\begin{equation}
+\label{eq:cp}
+    xy 
+    =
+    L^2
+\end{equation}
+
+\begin{equation}
+\label{eq:pr}
+    p(i) 
+    =
+    1.0001^{i}
+\end{equation}
+
+Each pool in Uniswap V4 allows for a Hooks parameter to be added during pool initialization. This Hooks parameter is a contract address that applies custom functionality to swaps, liquidity, and donation actions. It is through this Hooks contract that we modify Uniswap V4's swap and liquidity actions to create an async swap market maker.
+
+\section{Core Idea}
+
+We implement an Async Swap Market Maker (ASMM) that bypasses both the \eqref{eq:cp} swap logic in Uniswap V4’s constant-product market maker (CPMM) and the \eqref{eq:pr} concentrated liquidity tick pricing for asset pools, in favor of custom accounting. Our async market maker pauses transactions in the block they are submitted, allowing any user to manually fill the order at a later, non-deterministic time. This implementation removes the need for liquidity providers (LPs), as each async swap order is filled on demand in a peer-to-peer manner. We demonstrate that block-level MEV attacks can be prevented through async swaps. 
+
+\section{Async Swap Hook}
+
+Our Hooks contract implements custom logic in the following hook callbacks:
+
+\begin{itemize}
+\item \texttt{beforeAddLiquidity}
+\item \texttt{beforeSwap}
+\end{itemize}
+
+In our \texttt{beforeSwap} function, we first take the user-specified amount from the Pool Manager and emit an async swap order event. We then record a 1:1 claimable amount of the user's asset within our hook contract. Execution is returned to Uniswap V4’s Pool Manager, after which the user, typically interacting through a router, sends the asset they want to swap to the Pool Manager. This transfer settles the delta balance created by our hook. At this point, the async swap is recorded, an async order event has been emitted, and the order is ready to be filled in a future block.
+
+Our implementation is able to create async swaps because, whenever we return execution to the pool manager, we always specify a zero swap value, which will cause the Uniswap V4 swap logic to be bypassed. At the end of the transaction, the user's specified swapped asset has decreased by an amount they specified, and our hook's asset balance has increased by an amount the user specified.
+
+With this async swap hook, we can implement custom accounting during the filling of swap intents. One such feature is the constant-sum market maker (CSMM).
+
+\section{Filling Async Orders}
+
+A user filling async orders, referred to as the filler, must provide a valid swap order from previous swap events. By specifying this previous swap order to our hook contract, the order's asset will be sent to the filler. The filler must then supply an equivalent amount of the desired asset requested by the user who submitted the order.
+
+Since any user can fill previous orders, we have introduced a peer-to-peer order-filling process that eliminates the need for liquidity providers (LPs).
+
+\section{Fees}
+
+As previously noted, our implementation bypasses Uniswap V4’s swap logic and removes the need for liquidity providers. This means users pay no protocol fees, experience zero slippage, and are protected from block-level MEV, as active liquidity is not supported.
+
+Currently, our ASMM charges zero fees for both submitting and filling orders.
+
+\section{Future work}
+
+Our implementation enables permissionless order filling, potentially sparking competition among fillers through arbitrage opportunities created when interacting with intents across other DeFi protocols. While the impact remains uncertain, we welcome technical mentorship to investigate further. We are seeking capital to reach audit readiness, and our future work remains a work in progress (WIP).
+
+\printbibliography %Prints bibliography
+
+\end{document}
